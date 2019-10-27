@@ -30,18 +30,21 @@ def householder_ab(a, b):
         e1[0] = 1
         v = sign(x[0]) * norm(x) * e1 + x
         v /= norm(v)
-        a[k:, k:] -= 2 * v @ (np.conj(np.transpose(v)) @ a[k:, k:])
+        a[k:, k:] -= 2 * v @ v.T.conj() @ a[k:, k:]
 
-        b[k:] -= 2 * v @ (np.conj(np.transpose(v)) @ b[k:])
+        b[k:] -= 2 * v @ v.T.conj() @ b[k:]
     return np.triu(a), b
 
 
 # newest
-def qr(a, reduced=True):
+def qr(a, reduced=True, inplace=True):
     mn = min(a.shape)
     m, _ = a.shape
     q = np.identity(m)
-    # print(q)
+
+    if not inplace:
+        a = a.copy()
+
     for k in range(mn):
         x = a[k:, k].reshape(-1, 1)
         e1 = np.zeros_like(x)
@@ -70,5 +73,25 @@ def solve(a, b):
     return x
 
 
-def LSP(x, y):
-    pass
+def lstsq(x, y, deg, resids = True, plot=False):
+    vander = np.column_stack([x**i for i in range(deg + 1)])
+    q, r = qr(vander)
+    b = q.T.conj() @ y
+    c = solve(r, b)
+    print(c)
+    p = np.poly1d(np.flip(c.flat))
+    r = vander @ c - y
+    print(np.absolute(r).sum())
+
+    if resids:
+        # r = np.sum([p(i) for i in c])
+        pass
+
+    if plot:
+        import matplotlib.pyplot as plt
+
+        xxplot = np.linspace(np.min(x), np.max(x), 100)
+        # plt.plot(x, y, xxplot, vander @ xx)
+
+        plt.plot(x, y, '.', xxplot, p(xxplot), '-')
+        plt.show()
