@@ -5,21 +5,9 @@ def norm(x):
     # return np.sqrt(np.sum(np.square(np.real(x)) + np.square(np.imag(x))))
     return np.sqrt(x.T.conj() @ x)
 
+
 def sign(x):
-    return 1 if x >= 0 else -1
-
-
-def householder_complex(a: np.ndarray) -> np.ndarray:
-    # for k in range(n - (m == n)):
-    m, n = a.shape
-    for k in range(min(m, n)):
-        x = a[k:, k].reshape(-1, 1)
-        e1 = np.zeros_like(x)
-        e1[0] = 1
-        v = sign(x[0]) * norm(x) * e1 + x
-        v /= norm(v)
-        a[k:, k:] -= 2 * v @ (np.conj(np.transpose(v)) @ a[k:, k:])
-    return np.triu(a)
+    return 1 if np.real(x) >= 0 else -1
 
 
 def householder_ab(a, b):
@@ -36,12 +24,10 @@ def householder_ab(a, b):
     return np.triu(a), b
 
 
-# newest
-def qr(a, reduced=True, inplace=True):
+def qr(a: np.ndarray, reduced=True, inplace=True):
     mn = min(a.shape)
     m, _ = a.shape
     q = np.identity(m).astype(a.dtype)
-    a_orig = a
     if not inplace:
         a = a.copy()
 
@@ -50,13 +36,14 @@ def qr(a, reduced=True, inplace=True):
         e1 = np.zeros_like(x)
         e1[0] = 1.
         v = sign(x[0]) * norm(x) * e1 + x
-        # v = x[0]/np.abs(x[0]) * norm(x) * e1 + x
         v /= norm(v)
-        # a[k:, k:] -= 2 * v @ v.T.conj() @ a[k:, k:] USED TO BE BELOW
-        a[k:, k:] -= (1. + (v.T.conj() @ x).conj()/(v.T.conj() @ x)) * v @ v.T.conj() @ a[k:, k:]
+        H = (1. + (v.T.conj() @ x).conj()/(v.T.conj() @ x)) * v @ v.T.conj()
+        a[k:, k:] -= H @ a[k:, k:]
 
         qk = np.identity(m).astype(q.dtype)
-        qk[k:, k:] -= (1. + (v.T.conj() @ x).conj()/(v.T.conj() @ x)) * v @ v.T.conj()
+        H = (1. + (v.T.conj() @ x).conj()/(v.T.conj() @ x)) * v @ v.T.conj()
+        # TODO: why does this not work?
+        qk[k:, k:] -= H
         # = np.identity(v.shape[0]).astype(q.dtype) * v @ v.T.conj() USED TO BE ABOVE
         q = qk.T.conj() @ q
 
@@ -67,19 +54,60 @@ def qr(a, reduced=True, inplace=True):
         return q.T.conj(), np.triu(a)
 
 
-def solve(a, b, desc=None):
+# TODO: separate them
+def _householder(a):
+    x = a[:, 0].reshape(-1, 1)
+    e1 = np.zeros_like(x)
+    e1[0] = 1.
+    v = sign(x[0]) * norm(x) * e1 + x
+    v /= norm(v)
+    H = (1. + (v.T.conj() @ x).conj() / (v.T.conj() @ x)) * v @ v.T.conj()
+    return H
 
-    if desc is None:
-        if np.allclose(a, np.triu(a)):
-            desc = 'upper'
-        elif np.allclose(a, np.tril(a)):
-            desc = 'lower'
-        elif np.allclose(a, np.diag(np.diag(a))):
-            desc = 'diagonal'
-        else:
-            r, b = householder_ab(a, b)
 
+def qr2(a, b=None, reduced=True, inplace=False):
+    mn = min(a.shape)
+    m, _ = a.shape
+    q = np.identity(m).astype(a.dtype)
+
+    if not inplace:
+        a = a.copy()
+
+    H = np.zeros(q.shape).astype(a.dtype)
+
+    for k in range(mn):
+        H[k:, k:] = _householder(a[k:, k:])
+        # a[k:, k:] -= H[k:, k:] @ a[k:, k:]
+        qk = np.identity(m).astype(a.dtype)
+        qk[k:, k:] -= H[k:, k:]
+        q = qk.T.conj() @ H
+        a[k:, k:] -= H[k:, k:] @ a[k:, k:]
+
+        try:
+            b[k:] -= H @ b[k:]
+        except TypeError:
+            continue
+
+    if reduced:
+        q = q.T.conj()[:, :mn]
+        a = a[:mn]
+
+    if b is not None and not inplace:
+        return q, a, b
+    elif b is None and not inplace:
+        return q, a
+    else:
+        return q
+
+
+def solve(a, b):
     r, b = householder_ab(a, b)
+    return solve_triu(r, b)
+
+
+# TODO: add arg to return x as column or row?
+def solve_triu(r, b):
+    assert np.allclose(r, np.triu(r))
     x = np.zeros((r.shape[1], 1))
     x[-1] = b[-1] / r[-1, -1]
     for j in range(r.shape[0] - 2, -1, -1):
@@ -87,59 +115,54 @@ def solve(a, b, desc=None):
     return x
 
 
-def _poly1d(c, x):
+def solve_tril(l, b):
+    assert np.allclose(l, np.tril(l))
+    x = np.zeros((l.shape[1], 1))
+    x[0] = b[0] / l[0, 0]
+    for j in range(1, l.shape[0], 1):
+        x[j] = (b[j] - l[j, :j] @ x[:j]) / l[j, j]
+    return x
+
+
+def solve_diag(d, b):
+    assert np.allclose(d, np.diag(np.diag(d)))
+    # TODO: x = np.array([d[i, i] for i in range(len(d))])
+    x = b / np.diag(d).reshape(b.shape)
+    return x
+
+
+def poly1d(c, x):
     # return np.array([1**i for i in range(len(c))]) @ c
     return np.column_stack([x**i for i in range(len(c))]) @ c
 
 
-def polyfit(x, y, deg):
-    pass
-
-
-def lstsq(x, y, deg, resids = True, plot=False):
+def polyfit(x, y, deg, plot=False):
     vander = np.column_stack([x**i for i in range(deg + 1)])
-    print(vander.shape, y.shape, x.shape)
-    # scale lhs to improve condition number
-    m, rr, rank, s = np.linalg.lstsq(vander, y, rcond=None)
-    residuals = norm(y - m @ vander.T.conj())**2
-    print('residuals from np: ', residuals)
+    # scale to improve condition number
     scale = np.sqrt((vander*vander).sum(axis=0))
     vander /= scale
-    q, r = qr(vander, inplace=False)
+    q, r = qr(vander)
     b = q.T.conj() @ y
-    c = solve(r, b)  # scaled
+    c = solve_triu(r, b)  # scaled
     residuals = norm(y - c.reshape(-1) @ vander.T.conj()) ** 2
-    print('residuals from me scaled: ', residuals)
     c = (c.T/scale).T  # original scale
-    print('c unscaled: ', c)
-    p = np.poly1d(np.flip(c.flat))
-    modely = p(x)
-    myp = _poly1d(c, x).reshape(-1)
-    modely -= y
-    # print('mymodely: ', poly1d(c, x))
-    print('a: ', np.absolute(modely).sum())
-    # print(r)
-    print('b: ', np.sqrt((modely*modely).sum()))
-    print(myp.shape, y.shape)
-    resid = myp - y
-    print(np.sqrt((resid*resid).sum()))
-
-    if resids:
-        # r = np.sum([p(i) for i in c])
-        pass
 
     if plot:
         import matplotlib.pyplot as plt
 
-        xxplot = np.linspace(np.min(x), np.max(x), 100)
-        # plt.plot(x, y, xxplot, vander @ xx)
+        xx = np.linspace(np.min(x), np.max(x), 100)
 
-        # plt.plot(x, y, '.', xxplot, poly1d(c, xxplot), '-', xxplot, p(xxplot), '.')
-        plt.plot(x, y, '.', x, _poly1d(c, x), '-')
+        # TODO: don't need to sort usually
+        x_sorted, y_sorted = zip(*sorted(zip(xx, poly1d(c, xx))))
+        plt.plot(x, y, '.', label='Data')
+        plt.plot(x_sorted, y_sorted, label='Best fit')
+        plt.legend(loc='best')
+        plt.title('Least squares polynomial regression of deg {}'.format(deg))
         plt.show()
+
+    return c, residuals
 
 
 class Polynomial():
     def __init__(self, c):
         pass
-

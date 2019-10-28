@@ -1,7 +1,5 @@
 import numpy as np
-# import scipy.linalg
 import utilities
-# from sys import getsizeof
 
 # # data2 = np.genfromtxt('./readings2.csv', delimiter=',', dtype=float)
 
@@ -12,7 +10,7 @@ qn, rn = np.linalg.qr(An)
 # qrn = qn @ rn
 print('qn: ')
 print(np.round(qn, 3))
-print('rn:' )
+print('rn: ')
 print(np.round(rn, 3))
 
 # print(np.array_equal(np.conj(np.transpose(qn)) @ qn, qn @ np.conj(np.transpose(qn))))
@@ -37,15 +35,15 @@ light = data1[:, 0]
 temp = data1[:, 1]
 
 # x = np.array([1, 2, 3, 4])
-z, res, rank, sing_values, _ = np.polyfit(light, temp, 16, full=True)
-print('z: ', z)
-print('res: ', res)
-print('rank: ', rank)
+z, res, rank, sing_values, _ = np.polyfit(light, temp, 4, full=True)
+# print('z: ', z)
+# print('res from numpy: ', res)
+# print('rank: ', rank)
 
-import matplotlib.pyplot as plt
-xxplot = np.linspace(np.min(light), np.max(light), 100)
+# xxplot = np.linspace(np.min(light), np.max(light), 100)
 p = np.poly1d(z)
-y = p(xxplot)
-plt.plot(light, temp, '.', xxplot, y)
-plt.show()
-# utilities.lstsq(light, temp, 4, plot=False)
+y = p(light)
+# print('y from numpy: ', y)
+# plt.plot(light, temp, '.', xxplot, y)
+# plt.show()
+utilities.polyfit(light, temp, 4, plot=True)
