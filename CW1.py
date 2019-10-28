@@ -7,7 +7,7 @@ import utilities
 
 m, n = (8, 5)
 np.random.seed(1)
-An = np.random.rand(m, n).astype(np.float_) #+ 1j * np.random.rand(m, n)
+An = np.random.rand(m, n).astype(np.complex_) + 1j * np.random.rand(m, n)
 qn, rn = np.linalg.qr(An)
 # qrn = qn @ rn
 print('qn: ')
@@ -21,7 +21,7 @@ print(np.round(rn, 3))
 # print(qn.T.conj() @ qn)
 
 np.random.seed(1)
-A = np.random.rand(m, n).astype(np.float_) #+ 1j * np.random.rand(m, n)
+A = np.random.rand(m, n).astype(np.complex_) + 1j * np.random.rand(m, n)
 q, r = utilities.qr(A, inplace=False)
 
 # print(A)
