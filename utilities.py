@@ -2,8 +2,8 @@ import numpy as np
 
 
 def norm(x):
-    # return np.sqrt(np.sum(np.square(np.real(x)) + np.square(np.imag(x))))
-    return np.sqrt(x.T.conj() @ x)
+    return np.sqrt(np.sum(np.square(np.real(x)) + np.square(np.imag(x))))
+    # return np.sqrt(x.T.conj() @ x)
 
 
 def sign(x):
@@ -72,8 +72,9 @@ def qr(a, b=None, reduced=True, inplace=False):
         except TypeError:
             continue
 
+    q = q.T.conj()
     if reduced:
-        q = q.T.conj()[:, :mn]
+        q = q[:, :mn]
         a = a[:mn]
 
     if b is not None and not inplace:
@@ -86,6 +87,45 @@ def qr(a, b=None, reduced=True, inplace=False):
         return q
 
 
+# TODO: doesn't work for m < n
+def cgs(a, reduced=True):
+    mn = min(a.shape)
+    m, n = a.shape
+    q = np.eye(m, n).astype(a.dtype)
+    r = np.zeros_like(q)
+    for j in range(mn):
+        v = a[:, j]
+        for i in range(j):
+            r[i, j] = q[:, i].T.conj() @ v
+            v -= r[i, j] * q[:, i]
+        r[j, j] = norm(v)
+        q[:, j] = v / r[j, j]
+
+    print(r.shape)
+    if reduced:
+        return q[:m, :mn], r[:mn, :n]
+    else:
+        return q, r[:, :n]
+
+
+def mgs(a):
+    mn = min(a.shape)
+    m, n = a.shape
+    q = np.eye(m, n).astype(a.dtype)
+    v = np.zeros_like(a)
+    r = np.zeros_like(a)
+    for i in range(n):
+        v[:, i] = a[:, i]
+    for i in range(mn):
+        r[i, i] = norm(v[:, i])
+        q[:, i] = v[:, i] / r[i, i]
+        for j in range(1, n):
+            r[i, j] = q[:, i].T.conj() @ v[:, j]
+            v[:, j] -= r[i, j] * q[:, i]
+
+    return q[:m, :mn], r[:mn, :n]
+
+
 def solve(a, b):
     _, r, b = qr(a, b)
     return solve_triu(r, b)
@@ -93,7 +133,7 @@ def solve(a, b):
 
 def solve_triu(r, b):
     assert np.allclose(r, np.triu(r))
-    x = np.zeros((r.shape[1], 1))
+    x = np.zeros((r.shape[1], 1)).astype(r.dtype)
     x[-1] = b[-1] / r[-1, -1]
     for j in range(r.shape[0] - 2, -1, -1):
         x[j] = (b[j] - r[j, j + 1:] @ x[j + 1:]) / r[j, j]
@@ -102,7 +142,7 @@ def solve_triu(r, b):
 
 def solve_tril(l, b):
     assert np.allclose(l, np.tril(l))
-    x = np.zeros((l.shape[1], 1))
+    x = np.zeros((l.shape[1], 1)).astype(r.dtype)
     x[0] = b[0] / l[0, 0]
     for j in range(1, l.shape[0], 1):
         x[j] = (b[j] - l[j, :j] @ x[:j]) / l[j, j]
