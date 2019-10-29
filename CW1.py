@@ -46,4 +46,22 @@ y = p(light)
 # print('y from numpy: ', y)
 # plt.plot(light, temp, '.', xxplot, y)
 # plt.show()
-utilities.polyfit(light, temp, 4, plot=True)
+# c, res = utilities.polyfit(light, temp, 4, plot=True)
+
+for i in [5]:
+    z, res, rank, sing_values, _ = np.polyfit(light, temp, i, full=True)
+    print(i, z, res)
+    c, res = utilities.polyfit(light, temp, i, plot=False)
+    print(i, c, res)
+    print('******************************************')
+
+np.random.seed(1)
+a = np.random.rand(5, 5).astype(np.float_)
+b = np.random.rand(5, 1).astype(np.float_)
+a = np.tril(a)
+x = np.linalg.solve(a, b)
+# print(x)
+
+xx = utilities.solve_tril(a, b)
+# print(xx)
+
