@@ -1,58 +1,44 @@
 import numpy as np
 
 
-def norm(x):
-    return np.sqrt(np.sum(np.square(np.real(x)) + np.square(np.imag(x))))
-    # return np.sqrt(x.T.conj() @ x)
-
-
-def sign(x):
-    return 1 if np.real(x) >= 0 else -1
-
-
-def qr_old(a: np.ndarray, reduced=True, inplace=True):
-    mn = min(a.shape)
-    m, _ = a.shape
-    q = np.identity(m).astype(a.dtype)
-    if not inplace:
-        a = a.copy()
-
-    for k in range(mn):
-        x = a[k:, k].reshape(-1, 1)
-        e1 = np.zeros_like(x)
-        e1[0] = 1.
-        v = sign(x[0]) * norm(x) * e1 + x
-        v /= norm(v)
-        h = (1. + (v.T.conj() @ x).conj()/(v.T.conj() @ x)) * v @ v.T.conj()
-        a[k:, k:] -= h @ a[k:, k:]
-
-        qk = np.identity(m).astype(q.dtype)
-        # h = (1. + (v.T.conj() @ x).conj()/(v.T.conj() @ x)) * v @ v.T.conj()
-        # TODO: why does this not work? Have to add .T.conj()
-        qk[k:, k:] -= h.T.conj()
-        # = np.identity(v.shape[0]).astype(q.dtype) * v @ v.T.conj() USED TO BE ABOVE
-        q = qk.T.conj() @ q
-
-    if reduced:
-        # TODO: pythonic
-        return q.T.conj()[:, :mn], a[:mn]
-    else:
-        return q.T.conj(), np.triu(a)
+def _sign(x):
+    return 1 if np.real(x) >= 0 else -1  # eq. 2
 
 
 def _householder(a):
     x = a[:, 0].reshape(-1, 1)
     e1 = np.zeros_like(x)
     e1[0] = 1.
-    v = sign(x[0]) * norm(x) * e1 + x
+    v = _sign(x[0]) * norm(x) * e1 + x
     v /= norm(v)
-    h = (1. + (v.T.conj() @ x).conj() / (v.T.conj() @ x)) * v @ v.T.conj()
+    if np.iscomplexobj(x):
+        h = (1. + np.vdot(v, x).conj() / np.vdot(v, x)) * v @ v.T.conj()  # eq. 1
+    else:
+        h = 2 * v @ v.T
     return h
 
 
+def norm(x):
+    """
+    2-norm of a matrix or vector.
+    :param x: array, Matrix for which norm is calculated
+    :return: 2-norm of x
+    """
+    return np.sqrt(np.sum(np.square(np.real(x)) + np.square(np.imag(x))))
+
+
 def qr(a, b=None, reduced=True, inplace=False):
+    """
+    qr factorization of a matrix by Householder reflections.
+    q is an orthogonal/unitary matrix and r is upper-triangular.
+    :param a: array, shape (m, n); Matrix to be factored
+    :param b: if not None updates the vector b in Ax=b system of equations being solved
+    :param reduced: if True returns q, r with dimensions (m, k), (k, n)
+    :param inplace: if True directly updates the matrix a. Does not return r
+    :return: q, r (if not inplace), b (optional)
+    """
     mn = min(a.shape)
-    m, _ = a.shape
+    m = a.shape[0]
     q = np.identity(m).astype(a.dtype)
 
     if not inplace:
@@ -64,8 +50,8 @@ def qr(a, b=None, reduced=True, inplace=False):
         h[k:, k:] = _householder(a[k:, k:])
         a[k:, k:] -= h[k:, k:] @ a[k:, k:]
         qk = np.identity(m).astype(a.dtype)
-        qk[k:, k:] -= h[k:, k:].T.conj()
-        q = qk.T.conj() @ q
+        qk[k:, k:] -= h[k:, k:]
+        q = qk @ q
 
         try:
             b[k:] -= h[k:, k:] @ b[k:]
@@ -87,31 +73,16 @@ def qr(a, b=None, reduced=True, inplace=False):
         return q
 
 
-# TODO: doesn't work for m < n
-def cgs(a, reduced=True):
-    mn = min(a.shape)
-    m, n = a.shape
-    q = np.eye(m, n).astype(a.dtype)
-    r = np.zeros_like(q)
-    for j in range(mn):
-        v = a[:, j]
-        for i in range(j):
-            r[i, j] = q[:, i].T.conj() @ v
-            v -= r[i, j] * q[:, i]
-        r[j, j] = norm(v)
-        q[:, j] = v / r[j, j]
-
-    print(r.shape)
-    if reduced:
-        return q[:m, :mn], r[:mn, :n]
-    else:
-        return q, r[:, :n]
-
-
 def mgs(a):
+    """
+    qr factorization of a matrix by Modified Gram-Schmidt method.
+    q is an orthogonal/unitary matrix and r is upper-triangular.
+    :param a: array, shape (m, n); Matrix to be factored
+    :return: q, r
+    """
     mn = min(a.shape)
     m, n = a.shape
-    q = np.eye(m, n).astype(a.dtype)
+    q = np.identity(m).astype(a.dtype)
     v = np.zeros_like(a)
     r = np.zeros_like(a)
     for i in range(n):
@@ -120,18 +91,29 @@ def mgs(a):
         r[i, i] = norm(v[:, i])
         q[:, i] = v[:, i] / r[i, i]
         for j in range(1, n):
-            r[i, j] = q[:, i].T.conj() @ v[:, j]
+            r[i, j] = np.vdot(q[:, i], v[:, j])
             v[:, j] -= r[i, j] * q[:, i]
 
-    return q[:m, :mn], r[:mn, :n]
-
+    return q[:, :mn], r[:mn]
 
 def solve(a, b):
+    """
+    Solve a linear matrix equation ax = b for x.
+    :param a: matrix of independent variables, shape (m, n)
+    :param b: dependent variable values
+    :return: solution x to the system ax = b
+    """
     _, r, b = qr(a, b)
     return solve_triu(r, b)
 
 
 def solve_triu(r, b):
+    """
+    Solve a linear matrix equation ax = b for x where a is upper triangular.
+    :param r: upper triangular matrix of independent variables
+    :param b: dependent variable values
+    :return: x: solution to the system rx = b
+    """
     assert np.allclose(r, np.triu(r))
     x = np.zeros((r.shape[1], 1)).astype(r.dtype)
     x[-1] = b[-1] / r[-1, -1]
@@ -141,8 +123,14 @@ def solve_triu(r, b):
 
 
 def solve_tril(l, b):
+    """
+    Solve a linear matrix equation ax = b for x where a is upper triangular.
+    :param l: lower triangular matrix of independent variables
+    :param b: dependent variable values
+    :return: x: solution to the system lx = b
+    """
     assert np.allclose(l, np.tril(l))
-    x = np.zeros((l.shape[1], 1)).astype(r.dtype)
+    x = np.zeros((l.shape[1], 1)).astype(l.dtype)
     x[0] = b[0] / l[0, 0]
     for j in range(1, l.shape[0], 1):
         x[j] = (b[j] - l[j, :j] @ x[:j]) / l[j, j]
@@ -150,40 +138,45 @@ def solve_tril(l, b):
 
 
 def solve_diag(d, b):
+    """
+    Solve a linear matrix equation ax = b for x where a is diagonal.
+    :param d: diagonal matrix of independent variables
+    :param b: dependent variable values
+    :return: x: solution to the system dx = b
+    """
     assert np.allclose(d, np.diag(np.diag(d)))
-    # TODO: x = np.array([d[i, i] for i in range(len(d))])
     x = b / np.diag(d).reshape(b.shape)
     return x
 
 
 def poly1d(c, x):
+    """
+    Caculates y = Xc where X is a Vandermonde matrix of coefficients x.
+    :param c: array, polynomial coefficients
+    :param x: array, independent variables for which to calculate y
+    :return:
+    """
     return np.column_stack([x**i for i in range(len(c))]) @ c
 
 
-def polyfit(x, y, deg, plot=False):
+def polyfit(x, y, deg):
+    """
+    Fits a polynomial p(x) = c[deg] * x**deg + ... + c[0] of degree 'deg'
+    to points (x, y) by minimising the sum of squared residuals.
+    :param x: array, x-coordinates of observations
+    :param y: array, y-coordinates of observations
+    :param deg: int, degree of the fitting polynomial
+    :return: c: array of polynomial coefficients, lowest power first
+             residuals: residuals of the least-squares fit
+    """
     vander = np.column_stack([x**i for i in range(deg + 1)])
     # scale to improve condition number
     scale = np.sqrt((vander*vander).sum(axis=0))
     vander /= scale
     q, r = qr(vander)
     b = q.T.conj() @ y
-    c = solve_triu(r, b)  # scaled
+    c = solve_triu(r, b)
     residuals = norm(y - c.reshape(-1) @ vander.T.conj()) ** 2
     c = (c.T/scale).T  # rescale
-    # c = c.reshape(-1)  # row vector for user convenience
-
-    if plot:
-        import matplotlib.pyplot as plt
-
-        xx = np.linspace(np.min(x), np.max(x), 100)
-        name = str(np.round(c[0, 0], 3))
-        name += ''.join(['+' + str(np.round(j[0], 3)) + 'x^{}'.format(i+1) for i, j in enumerate(c[1:])])
-
-        x_sorted, y_sorted = zip(*sorted(zip(xx, poly1d(c, xx))))
-        plt.plot(x, y, '.', label='Data')
-        plt.plot(x_sorted, y_sorted, label='{}'.format(name))
-        plt.legend(loc='best')
-        plt.title('Least squares polynomial regression of deg {}'.format(deg))
-        plt.show()
 
     return c, residuals
